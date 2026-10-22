@@ -2,12 +2,14 @@
 
 A minimal [MCP](https://modelcontextprotocol.io) server that lets any Claude client — iPhone, web, desktop — write to your GitHub-backed markdown vault directly, not just whatever agent happens to be running locally.
 
-Two tools, nothing else:
+Four tools, nothing else:
 
 - **`capture(text, actionable=False)`** — appends a bullet to your inbox file's capture section. No frontmatter, no filing decision, no question asked — zero-friction capture from wherever you're chatting.
-- **`read_file(path)`** — reads any file in the vault repo (your `INDEX.md`, an `AGENTS.md`, a note) so Claude can pull context on demand instead of guessing.
+- **`search(pattern, path_glob="", context=2, ignore_case=True)`** — greps the vault's markdown (`git grep -E`) and returns `path:line:text` matches with a few lines of context, capped at 200 lines. Searching `^summary:.*<topic>` gives one line per relevant note.
+- **`list_files(path_glob="**")`** — lists file paths matching a glob (`Projects/**`, `**/*Solal*`), attachments included.
+- **`read_file(path, start=1, end=0)`** — reads lines `start..end` of any file, numbered. Without `end` it returns the first 200 lines and says how long the file is, so Claude reads the part it found with `search` instead of whole files.
 
-Both go through the [GitHub Contents API](https://docs.github.com/en/rest/repos/contents), so the vault stays plain git — no database, no extra service to run besides this one.
+`capture` and `read_file` go through the [GitHub Contents API](https://docs.github.com/en/rest/repos/contents). `search` and `list_files` run on a shallow, markdown-only clone that the server makes on first use (images and other attachments are never downloaded) and refreshes before every call, so a capture is searchable a second later. The vault stays plain git — no database, no extra service to run besides this one.
 
 ## Why
 
@@ -91,6 +93,7 @@ Test it: ask Claude to capture something, then check your inbox file.
 | `INBOX_PATH` | no | `Inbox.md` | repo-relative path |
 | `CAPTURE_HEADING` | no | `## To process` | must match a line in `INBOX_PATH` exactly |
 | `PORT` | no | `8080` | set by Cloud Run automatically |
+| `VAULT_DIR` | no | `/tmp/vault` | where `search`/`list_files` keep their clone |
 
 ## Gotchas (hit these during the first deploy, saving you the time)
 
@@ -102,7 +105,8 @@ Test it: ask Claude to capture something, then check your inbox file.
 
 - Auth is a single static bearer token, not OAuth — anyone with the token can call `capture`/`read_file` on your repo. Fine for solo/small-group personal use; rotate the token (new secret version + redeploy) if it leaks.
 - No write access outside `INBOX_PATH` — by design. This is meant to stay a dumb capture tool, not reinvent note-filing.
-- `read_file` has no directory recursion or search — point your agent at an `INDEX.md` or similar in your vault for that.
+- `search` only covers `*.md` files on `GITHUB_BRANCH`. Files that are gitignored (a generated `INDEX.md`, say) aren't on GitHub, so no tool can see them.
+- The first `search`/`list_files` after a cold start clones the vault (a few seconds); later calls only fetch what changed. On Cloud Run the clone lives in `/tmp`, which is memory: a 1,400-note vault takes about 4 MB.
 
 ## License
 
